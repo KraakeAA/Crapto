@@ -9,9 +9,10 @@ export default function App({ Component, pageProps }) {
   const network = WalletAdapterNetwork.Devnet;
   const endpoint = clusterApiUrl(network);
   const wallets = [new PhantomWalletAdapter()];
+
   return (
     <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={walts} autoConnect>
+      <WalletProvider wallets={wallets} autoConnect>
         <Component {...pageProps} />
       </WalletProvider>
     </ConnectionProvider>
