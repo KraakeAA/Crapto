@@ -33,7 +33,7 @@ export default function Home() {
           <div className="w-10 h-10 bg-crapto-light-brown rounded-full mr-2"></div> {/* Logo placeholder */}
           <h1 className="text-3xl font-bold text-crapto-light-brown">Crapto 💩</h1>
         </div>
-        <WalletMultiButton className="bg-crapto-light-brown text-crapto-dark-brown px-6 py-2 rounded-full hover:bg-white transition duration-300" />
+        <WalletMultiButton className="bg-crapto-light-brown text-crapto-dark-brown px-6 py-2 rounded-full hover:bg-white transition duration-300 animate-spin-slow" />
       </header>
       <main className="flex-grow p-6">
         <section className="text-center mb-12">
@@ -87,6 +87,37 @@ export default function Home() {
                 </div>
               </Link>
             ))}
+          </div>
+        </section>
+        <section className="text-center mb-12">
+          <h2 className="text-3xl font-bold mb-4 text-crapto-light-brown">Market Trend</h2>
+          <div className="max-w-2xl mx-auto">
+            <canvas-panel>
+              ```chartjs
+              {
+                "type": "line",
+                "data": {
+                  "labels": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5"],
+                  "datasets": [{
+                    "label": "Crapto Market Cap ($)",
+                    "data": [5000, 3200, 7800, 4200, 6000],
+                    "borderColor": "#DAA06D",
+                    "backgroundColor": "rgba(218, 160, 109, 0.2)",
+                    "tension": 0.4,
+                    "fill": true
+                  }]
+                },
+                "options": {
+                  "responsive": true,
+                  "scales": {
+                    "y": {
+                      "beginAtZero": true
+                    }
+                  }
+                }
+              }
+              ```
+            </canvas-panel>
           </div>
         </section>
       </main>
