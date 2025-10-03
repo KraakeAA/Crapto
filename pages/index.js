@@ -89,43 +89,10 @@ export default function Home() {
             ))}
           </div>
         </section>
-        <section className="text-center">
-          <h2 className="text-3xl font-bold mb-4 text-crapto-light-brown">Market Trend</h2>
-          <div className="max-w-2xl mx-auto">
-            <canvas id="marketChart"></canvas>
-          </div>
-        </section>
       </main>
       <footer className="p-4 text-center bg-crapto-brown">
         <p>&copy; 2025 Crapto. Smell the profits on Solana! 💩</p>
       </footer>
-
-      <script>
-        // Market trend chart (loaded dynamically)
-        const ctx = document.getElementById('marketChart').getContext('2d');
-        new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5'],
-            datasets: [{
-              label: 'Crapto Market Cap ($)',
-              data: [5000, 3200, 7800, 4200, 6000],
-              borderColor: '#D2B48C',
-              backgroundColor: 'rgba(210, 180, 140, 0.2)',
-              tension: 0.4,
-              fill: true
-            }]
-          },
-          options: {
-            responsive: true,
-            scales: {
-              y: {
-                beginAtZero: true
-              }
-            }
-          }
-        });
-      </script>
     </div>
   );
 }
