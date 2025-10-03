@@ -31,7 +31,7 @@ export default function Home() {
       <header className="p-4 flex justify-between items-center border-b-4 border-crapto-light-brown">
         <div className="flex items-center">
           <div className="w-10 h-10 bg-crapto-light-brown rounded-full mr-2"></div> {/* Logo placeholder */}
-          <h1 className="text-3xl font-bold text-crapto-light-brown">Crapto 💩</h1>
+          <h1 className="text-5xl font-extrabold text-red-500">Crapto 💩 - MAJOR UPDATE!</h1>
         </div>
         <WalletMultiButton className="bg-crapto-light-brown text-crapto-dark-brown px-6 py-2 rounded-full hover:bg-white transition duration-300 animate-spin-slow" />
       </header>
