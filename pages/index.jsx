@@ -1,4 +1,4 @@
-import React, { useState, useContext, useCallback, useMemo } from 'react';
+import React, { useState, useContext, useCallback, useMemo, useEffect } from 'react';
 
 // --- CONFIGURATION AND INITIAL STATE ---
 
@@ -14,7 +14,73 @@ const initialPortfolio = {
     holdings: {},    // { TICKER: { amount: 10000000, cost: 0.5 } }
 };
 
-// --- 1. MOCK SOLANA WALLET CONTEXT ---
+// --- HELPER COMPONENTS ---
+
+const ToastNotification = ({ toast, onClose }) => {
+    if (!toast) return null;
+
+    const baseClasses = "fixed bottom-5 right-5 p-4 rounded-lg shadow-xl text-white font-semibold transform transition-transform duration-300 z-50";
+    let typeClasses = '';
+
+    switch (toast.type) {
+        case 'success':
+            typeClasses = 'bg-green-600';
+            break;
+        case 'error':
+            typeClasses = 'bg-red-600';
+            break;
+        case 'info':
+        default:
+            typeClasses = 'bg-crapto-poop-yellow text-crapto-dark-brown';
+            break;
+    }
+
+    return (
+        <div className={`${baseClasses} ${typeClasses}`}>
+            {toast.message}
+            <button onClick={onClose} className="ml-3 text-sm font-bold opacity-80 hover:opacity-100">
+                &times;
+            </button>
+        </div>
+    );
+};
+
+const TransactionHistory = ({ transactions }) => {
+    const formatTime = (timestamp) => {
+        return new Date(timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    return (
+        <section className="mt-12 max-w-4xl mx-auto">
+            <h2 className="text-3xl font-extrabold mb-4 text-crapto-light-brown">Transaction Log</h2>
+            <div className="h-64 overflow-y-scroll p-4 bg-crapto-brown rounded-xl border-4 border-crapto-light-brown/50 shadow-inner space-y-2">
+                {transactions.length === 0 ? (
+                    <p className="text-crapto-light-brown/70 text-center pt-8">No trades recorded yet. Get in the market!</p>
+                ) : (
+                    transactions.slice().reverse().map((tx, index) => {
+                        const isBuy = tx.type === 'BUY';
+                        const color = isBuy ? 'text-green-400' : 'text-red-400';
+
+                        return (
+                            <div key={index} className="flex justify-between text-sm font-mono p-2 bg-crapto-dark-brown/50 rounded-lg">
+                                <span className="text-crapto-light-brown/80">{formatTime(tx.timestamp)}</span>
+                                <span className={color}>
+                                    {tx.type} {tx.amount.toLocaleString()} {tx.ticker} 
+                                </span>
+                                <span className="text-white">
+                                    for {tx.solCost.toFixed(4)} SOL
+                                </span>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+        </section>
+    );
+};
+
+
+// --- MOCK CONTEXT & WALLET COMPONENTS ---
 const MockWalletContext = React.createContext(null);
 
 const MockWalletProvider = ({ children }) => {
@@ -29,7 +95,6 @@ const MockWalletProvider = ({ children }) => {
 
     const disconnect = () => {
         setPublicKey(null);
-        // NOTE: We do not clear the portfolio on disconnect in this simplified mock
     };
 
     const value = { publicKey, connected, connect, disconnect, userId };
@@ -66,49 +131,229 @@ const WalletMultiButton = () => {
     );
 };
 
-// --- 2. PORTFOLIO COMPONENT ---
+// --- TOKEN DETAIL MODAL COMPONENT ---
+
+const TokenModal = ({ modalState, onClose, onTrade, portfolio }) => {
+    const { token, type } = modalState;
+    const { solBalance, holdings } = portfolio;
+    
+    const isBuy = type === 'BUY';
+
+    const [inputAmount, setInputAmount] = useState(0);
+    const [calculatedAmount, setCalculatedAmount] = useState(0);
+    const [message, setMessage] = useState('');
+    const [isExecuting, setIsExecuting] = useState(false);
+
+    const tokenHolding = holdings[token?.ticker] || { amount: 0 };
+    const maxInput = isBuy ? solBalance : (tokenHolding.amount / 100000000); // Max SOL to spend or max Tokens to sell (in SOL equivalent for UX)
+
+    // Reset state when modal opens/changes token
+    useEffect(() => {
+        if (token) {
+            setInputAmount(0.01); // Default to small amount
+            setMessage('');
+            setCalculatedAmount(0);
+        }
+    }, [token, type]);
+
+    // Recalculate token/SOL amount whenever input or token price changes
+    useEffect(() => {
+        if (!token || inputAmount <= 0) {
+            setCalculatedAmount(0);
+            return;
+        }
+
+        const priceInDecimals = token.price / 100000000;
+
+        if (isBuy) {
+            // Input is SOL amount, calculate Token amount (in whole units)
+            const tokensReceived = Math.floor(inputAmount / priceInDecimals);
+            setCalculatedAmount(tokensReceived);
+
+            if (inputAmount > solBalance) {
+                setMessage('🚨 Insufficient SOL balance.');
+            } else {
+                setMessage('');
+            }
+
+        } else {
+            // Input is Token amount (in whole units), calculate SOL received
+            const solReceived = inputAmount * priceInDecimals;
+            setCalculatedAmount(solReceived);
+
+            if (inputAmount > tokenHolding.amount) {
+                setMessage(`🚨 Insufficient ${token.ticker} balance.`);
+            } else {
+                setMessage('');
+            }
+        }
+    }, [inputAmount, token, isBuy, solBalance, tokenHolding.amount]);
+
+
+    const handleExecuteTrade = () => {
+        if (inputAmount <= 0 || message) return;
+
+        let solToSpend = 0;
+        let tokenAmount = 0;
+
+        if (isBuy) {
+            // Buy: Input is SOL amount (inputAmount), calculated is Token amount (calculatedAmount)
+            solToSpend = inputAmount;
+            tokenAmount = calculatedAmount;
+            if (solToSpend > solBalance) {
+                 setMessage('🚨 Trade failed: Not enough SOL.');
+                 return;
+            }
+        } else {
+            // Sell: Input is Token amount (inputAmount), calculated is SOL amount (calculatedAmount)
+            solToSpend = -calculatedAmount; // Negative cost means receiving SOL
+            tokenAmount = -inputAmount; // Negative token amount means selling tokens
+            if (inputAmount > tokenHolding.amount) {
+                setMessage('🚨 Trade failed: Not enough tokens.');
+                return;
+            }
+        }
+
+        setIsExecuting(true);
+        setMessage(`Executing ${isBuy ? 'Buy' : 'Sell'} trade...`);
+
+        setTimeout(() => {
+            onTrade(token, isBuy ? 'BUY' : 'SELL', tokenAmount, solToSpend);
+            onClose();
+        }, 1000);
+    };
+    
+    if (!token) return null;
+
+    const actionText = isBuy ? 'BUY' : 'SELL';
+    const inputLabel = isBuy ? 'SOL to Spend' : `${token.ticker} to Sell`;
+    const outputLabel = isBuy ? `${token.ticker} to Receive` : 'SOL to Receive';
+    const buttonDisabled = inputAmount <= 0 || !!message || isExecuting;
+
+    return (
+        <div className="fixed inset-0 bg-crapto-dark-brown/90 backdrop-blur-sm flex items-center justify-center p-4 z-40">
+            <div className="bg-crapto-brown p-8 rounded-2xl w-full max-w-lg shadow-[0_15px_40px_rgba(0,0,0,0.8)] border-4 border-crapto-poop-yellow">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-3xl font-extrabold text-white">{actionText} <span className="text-crapto-poop-yellow">{token.ticker}</span></h3>
+                    <button onClick={onClose} className="text-3xl text-crapto-light-brown hover:text-white transition">&times;</button>
+                </div>
+
+                {/* Mock Chart Area */}
+                <div className="h-24 bg-crapto-dark-brown p-3 mb-6 rounded-lg border border-crapto-light-brown/30 relative">
+                    <p className="text-sm font-mono text-crapto-light-brown/70">Price Chart (Mock)</p>
+                    {/* Simplified rising/falling line chart */}
+                    <svg viewBox="0 0 100 20" className="w-full h-12">
+                        <polyline fill="none" stroke={isBuy ? "#4ade80" : "#f87171"} strokeWidth="1" 
+                                points="0,15 25,5 50,15 75,5 100,10" />
+                    </svg>
+                    <p className="text-white text-lg font-bold absolute bottom-3 right-3">{token.price.toFixed(8)} SOL</p>
+                </div>
+                
+                {/* Inputs */}
+                <div className="mb-4">
+                    <label className="block text-sm font-semibold mb-2 text-crapto-light-brown">{inputLabel}</label>
+                    <input
+                        type="number"
+                        step={isBuy ? "0.01" : "1"}
+                        min="0"
+                        max={maxInput}
+                        value={inputAmount}
+                        onChange={(e) => setInputAmount(parseFloat(e.target.value) || 0)}
+                        className="w-full p-4 text-xl font-mono bg-white/10 text-white rounded-xl border border-crapto-light-brown focus:outline-none focus:ring-4 focus:ring-crapto-poop-yellow"
+                        disabled={isExecuting}
+                    />
+                </div>
+
+                {/* Output */}
+                <div className="mb-6">
+                    <label className="block text-sm font-semibold mb-2 text-crapto-light-brown">{outputLabel}</label>
+                    <div className="w-full p-4 text-xl font-mono bg-crapto-dark-brown/50 text-crapto-poop-yellow rounded-xl border border-crapto-light-brown/70">
+                        {calculatedAmount.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                    </div>
+                </div>
+
+                {message && (
+                    <div className="mb-4 p-3 font-semibold rounded-lg text-center bg-red-900/50 border border-red-400 text-red-300">
+                        {message}
+                    </div>
+                )}
+
+                <button
+                    onClick={handleExecuteTrade}
+                    disabled={buttonDisabled}
+                    className={`w-full p-4 font-extrabold text-xl rounded-xl shadow-lg transition duration-300 
+                        ${!buttonDisabled 
+                            ? (isBuy ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700') + ' text-white'
+                            : 'bg-gray-500 text-gray-300 cursor-not-allowed'}
+                    `}
+                >
+                    {isExecuting ? (
+                        <span className="flex items-center justify-center">
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Confirming...
+                        </span>
+                    ) : (
+                        `${actionText} ${token.ticker}`
+                    )}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+
+// --- CORE APPLICATION COMPONENTS ---
 
 const Portfolio = ({ portfolio, tokens }) => {
     const { connected } = useMockWallet();
-    const holdings = Object.values(portfolio.holdings);
+    const holdings = Object.values(portfolio.holdings).filter(h => h.amount > 0);
 
     if (!connected) return null;
 
-    const totalValue = holdings.reduce((sum, holding) => {
+    const totalTokenValue = holdings.reduce((sum, holding) => {
         const token = tokens.find(t => t.ticker === holding.ticker);
         if (token) {
             // Calculate value based on current mock price
-            return sum + (holding.amount * token.price) / 100000000;
+            return sum + (holding.amount / 100000000 * token.price);
         }
         return sum;
     }, 0);
+    
+    const totalAssetValue = totalTokenValue + portfolio.solBalance;
 
-    const formatPrice = (price) => price ? price.toFixed(8) : 'N/A';
     const formatValue = (value) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
     
     return (
         <section className="max-w-4xl mx-auto mt-12 mb-16 p-6 bg-crapto-brown/70 rounded-2xl shadow-xl border-4 border-crapto-light-brown/50">
             <h2 className="text-3xl font-extrabold mb-4 text-crapto-poop-yellow">Your Crapto Portfolio</h2>
             
-            <div className="grid grid-cols-2 gap-4 text-center mb-6 border-b border-crapto-light-brown/30 pb-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center mb-6 border-b border-crapto-light-brown/30 pb-4">
                 <div className="p-3 bg-crapto-dark-brown rounded-lg shadow-inner">
-                    <p className="text-sm text-crapto-light-brown/80">SOL Balance</p>
-                    <p className="text-2xl font-bold text-white">{portfolio.solBalance.toFixed(4)} SOL</p>
+                    <p className="text-sm text-crapto-light-brown/80">Total Assets</p>
+                    <p className="text-xl font-bold text-green-400">{totalAssetValue.toFixed(4)} SOL</p>
                 </div>
-                <div className="p-3 bg-crapto-dark-brown rounded-lg shadow-inner">
-                    <p className="text-sm text-crapto-light-brown/80">Total Token Value</p>
-                    <p className="text-2xl font-bold text-green-400">{formatValue(totalValue)}</p>
+                <div className="p-3 bg-crapto-dark-brown rounded-lg shadow-inner col-span-2 md:col-span-1">
+                    <p className="text-sm text-crapto-light-brown/80">SOL Balance</p>
+                    <p className="text-xl font-bold text-white">{portfolio.solBalance.toFixed(4)} SOL</p>
+                </div>
+                <div className="p-3 bg-crapto-dark-brown rounded-lg shadow-inner col-span-2 md:col-span-1">
+                    <p className="text-sm text-crapto-light-brown/80">Token Holdings Value</p>
+                    <p className="text-xl font-bold text-white">{totalTokenValue.toFixed(4)} SOL</p>
                 </div>
             </div>
 
             {holdings.length === 0 ? (
-                <p className="text-center text-crapto-light-brown/70">No holdings yet. Buy a coin to start!</p>
+                <p className="text-center text-crapto-light-brown/70">No active token holdings yet. Start buying!</p>
             ) : (
                 <div className="space-y-3">
                     {holdings.map(h => {
                         const token = tokens.find(t => t.ticker === h.ticker);
                         const currentPrice = token?.price || 0;
-                        const usdValue = (h.amount * currentPrice) / 100000000;
+                        const solValue = (h.amount / 100000000 * currentPrice);
+                        const pnl = solValue > h.cost ? 'text-green-400' : 'text-red-400';
                         
                         return (
                             <div key={h.ticker} className="flex justify-between items-center p-3 bg-crapto-dark-brown/50 rounded-lg">
@@ -117,8 +362,8 @@ const Portfolio = ({ portfolio, tokens }) => {
                                     <p className="text-xs text-crapto-light-brown/80">{h.amount.toLocaleString()} Tokens</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-md font-semibold text-white">{formatValue(usdValue)}</p>
-                                    <p className="text-xs text-crapto-light-brown/80">@{formatPrice(currentPrice)} SOL</p>
+                                    <p className="text-md font-semibold text-white">{solValue.toFixed(4)} SOL</p>
+                                    <p className={`text-xs ${pnl}`}>Cost: {h.cost.toFixed(4)} SOL</p>
                                 </div>
                             </div>
                         );
@@ -130,30 +375,26 @@ const Portfolio = ({ portfolio, tokens }) => {
 };
 
 
-// --- 3. LAUNCH FORM & TOKEN LIST COMPONENTS ---
-
-const LaunchForm = ({ onLaunchToken }) => {
+const LaunchForm = ({ onLaunchToken, showToast }) => {
     const { connected, userId } = useMockWallet();
     const [tokenName, setTokenName] = useState('');
     const [ticker, setTicker] = useState('');
-    const [message, setMessage] = useState('');
     const [isLaunching, setIsLaunching] = useState(false);
 
     const handleCreateToken = useCallback(() => {
         if (!connected) {
-            setMessage('🚨 Connect your wallet first!');
+            showToast('Connect your wallet first!', 'error');
             return;
         }
         if (!tokenName || !ticker) {
-            setMessage('🚨 Token Name and Ticker are required!');
+            showToast('Token Name and Ticker are required!', 'error');
             return;
         }
 
         setIsLaunching(true);
-        setMessage('Processing launch... smell the profits!');
 
         setTimeout(() => {
-            const initialPrice = 0.00000001; // $1e-8
+            const initialPrice = 0.00000001;
             const newToken = {
                 id: crypto.randomUUID(),
                 name: tokenName.trim(),
@@ -167,13 +408,12 @@ const LaunchForm = ({ onLaunchToken }) => {
 
             onLaunchToken(newToken); 
 
-            setMessage(`✅ ${newToken.ticker} successfully launched at ${initialPrice} SOL!`);
+            showToast(`${newToken.ticker} successfully launched at ${initialPrice.toFixed(8)} SOL!`, 'success');
             setTokenName('');
             setTicker('');
             setIsLaunching(false);
-            setTimeout(() => setMessage(''), 5000); 
         }, 1500); 
-    }, [tokenName, ticker, connected, userId, onLaunchToken]);
+    }, [tokenName, ticker, connected, userId, onLaunchToken, showToast]);
 
     const isButtonDisabled = !connected || !tokenName || !ticker || isLaunching;
 
@@ -193,7 +433,7 @@ const LaunchForm = ({ onLaunchToken }) => {
             />
             <input
                 type="text"
-                placeholder="Ticker (e.g., POOP)"
+                placeholder="Ticker (e.g., POOP, max 5 chars)"
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 5))}
                 className="w-full p-4 mb-6 bg-white/10 text-white placeholder-crapto-light-brown/70 rounded-xl border border-crapto-light-brown focus:outline-none focus:ring-4 focus:ring-crapto-poop-yellow transition duration-200"
@@ -216,23 +456,17 @@ const LaunchForm = ({ onLaunchToken }) => {
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Launching...
+                        Deploying SPL Program...
                     </span>
                 ) : (
                     'Launch Coin & Start Liquidity! 💩'
                 )}
             </button>
-            
-            {message && (
-                <div className={`mt-4 p-3 font-semibold rounded-lg text-center ${message.startsWith('✅') ? 'bg-green-900/50 border border-green-400 text-green-300' : 'bg-red-900/50 border border-red-400 text-red-300'}`}>
-                    {message}
-                </div>
-            )}
         </div>
     );
 };
 
-const TokenList = ({ tokenList, handleBuy, handleSell }) => {
+const TokenList = ({ tokenList, onOpenModal }) => {
     const { userId, connected } = useMockWallet();
 
     const sortedTokenList = useMemo(() => {
@@ -290,14 +524,14 @@ const TokenList = ({ tokenList, handleBuy, handleSell }) => {
                                 
                                 <div className="w-full sm:w-auto sm:ml-6 flex space-x-2 justify-end">
                                     <button
-                                        onClick={() => handleBuy(token)}
+                                        onClick={() => onOpenModal(token, 'BUY')}
                                         disabled={!connected}
                                         className="px-4 py-2 bg-green-600 text-white font-bold rounded-full hover:bg-green-700 transition duration-200 disabled:bg-gray-500 disabled:cursor-not-allowed"
                                     >
                                         Buy
                                     </button>
                                     <button
-                                        onClick={() => handleSell(token)}
+                                        onClick={() => onOpenModal(token, 'SELL')}
                                         disabled={!connected}
                                         className="px-4 py-2 bg-red-600 text-white font-bold rounded-full hover:bg-red-700 transition duration-200 disabled:bg-gray-500 disabled:cursor-not-allowed"
                                     >
@@ -320,69 +554,100 @@ const TokenList = ({ tokenList, handleBuy, handleSell }) => {
     );
 };
 
-// --- 4. MAIN APP COMPONENT (Manages local state) ---
+// --- 4. MAIN APP COMPONENT (Manages all state) ---
 
 const Home = () => {
     const { connected } = useMockWallet();
     const [tokenList, setTokenList] = useState(initialMockTokens);
     const [portfolio, setPortfolio] = useState(initialPortfolio);
+    const [transactions, setTransactions] = useState([]);
+    const [toast, setToast] = useState(null);
+    const [modalState, setModalState] = useState({ isOpen: false, token: null, type: null }); // type: 'BUY' | 'SELL'
 
+    // Toast Handler
+    const showToast = useCallback((message, type = 'info') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 4000);
+    }, []);
+
+    // Token Launch Handler (from LaunchForm)
     const handleLaunchToken = useCallback((newToken) => {
         setTokenList(prevList => [newToken, ...prevList]);
     }, []);
+    
+    // Modal Open/Close Handlers
+    const onOpenModal = useCallback((token, type) => {
+        if (!connected) {
+            showToast('Please connect your wallet to trade.', 'error');
+            return;
+        }
+        setModalState({ isOpen: true, token, type });
+    }, [connected, showToast]);
 
-    const handleTrade = useCallback((token, type) => {
-        if (!connected) return;
+    const onCloseModal = useCallback(() => {
+        setModalState({ isOpen: false, token: null, type: null });
+    }, []);
 
-        const { ticker, price } = token;
-        const tradeAmount = 10000000; // Mock trade amount in tokens
-        const solCost = price * (tradeAmount / 100000000); // Cost/Receive in SOL
 
+    // Complex Trade Handler (from TokenModal)
+    const handleComplexTrade = useCallback((token, type, tokenAmount, solChange) => {
+        
+        // 1. Update Token Market Metrics (Price, Cap, 24h Change)
         setTokenList(prevList => prevList.map(t => {
             if (t.id === token.id) {
-                // Simulate price fluctuation and market cap change
-                const factor = type === 'BUY' ? 1.001 : 0.999;
+                // Determine fluctuation based on trade size (solChange magnitude)
+                const priceFactor = 1 + (solChange > 0 ? 0.005 : -0.005) * Math.abs(solChange);
                 return {
                     ...t,
-                    marketCap: Math.round(t.marketCap + (type === 'BUY' ? 100 : -100)),
-                    price: t.price * factor,
-                    change24h: Math.min(Math.max(t.change24h + (type === 'BUY' ? 0.5 : -0.5), -50), 200) // Keep change bounded
+                    marketCap: Math.round(t.marketCap + (solChange * 100)), // Mock market cap proportional to SOL volume
+                    price: t.price * priceFactor,
+                    change24h: Math.min(Math.max(t.change24h + (solChange > 0 ? 0.8 : -0.8), -50), 200) 
                 };
             }
             return t;
         }));
 
+
+        // 2. Update Portfolio
+        const solCost = -solChange; // Cost in SOL (positive for buy, negative for sell)
+        
         setPortfolio(prevPortfolio => {
-            const currentHolding = prevPortfolio.holdings[ticker] || { amount: 0, cost: 0, ticker };
+            const currentHolding = prevPortfolio.holdings[token.ticker] || { amount: 0, cost: 0, ticker: token.ticker };
             const newPortfolio = { ...prevPortfolio };
 
-            if (type === 'BUY' && newPortfolio.solBalance >= solCost) {
-                newPortfolio.solBalance -= solCost;
-                currentHolding.amount += tradeAmount;
-                // Simple average cost calculation
-                currentHolding.cost = (currentHolding.cost * (currentHolding.amount - tradeAmount) + solCost * 1) / currentHolding.amount;
-                
-            } else if (type === 'SELL' && currentHolding.amount >= tradeAmount) {
-                newPortfolio.solBalance += solCost; // Receive SOL
-                currentHolding.amount -= tradeAmount;
-            } else {
-                // Not enough SOL or Tokens
-                return prevPortfolio;
+            newPortfolio.solBalance -= solChange; // If buying, solChange > 0, so subtract. If selling, solChange < 0, so add.
+            currentHolding.amount += tokenAmount;
+
+            if (type === 'BUY') {
+                // Calculate new average cost
+                const newTotalCost = (currentHolding.cost * (currentHolding.amount - tokenAmount) + solCost);
+                currentHolding.cost = newTotalCost / currentHolding.amount;
             }
             
             if (currentHolding.amount > 0) {
-                 newPortfolio.holdings[ticker] = currentHolding;
+                 newPortfolio.holdings[token.ticker] = currentHolding;
             } else {
-                delete newPortfolio.holdings[ticker];
+                delete newPortfolio.holdings[token.ticker];
             }
 
             return newPortfolio;
         });
 
-    }, [connected]);
+        // 3. Add to Transaction History
+        const transaction = {
+            type,
+            ticker: token.ticker,
+            amount: Math.abs(tokenAmount),
+            solCost: Math.abs(solChange),
+            timestamp: Date.now(),
+        };
+        setTransactions(prev => [...prev, transaction]);
+        
+        // 4. Show Notification
+        showToast(`Successfully executed ${type} of ${Math.abs(tokenAmount).toLocaleString()} ${token.ticker}!`, 'success');
 
-    const handleBuy = useCallback((token) => handleTrade(token, 'BUY'), [handleTrade]);
-    const handleSell = useCallback((token) => handleTrade(token, 'SELL'), [handleTrade]);
+    }, [showToast]);
+
 
     return (
         <div className="min-h-screen flex flex-col bg-crapto-dark-brown text-white font-sans">
@@ -409,18 +674,29 @@ const Home = () => {
                     </p>
                 </section>
                 
-                <LaunchForm onLaunchToken={handleLaunchToken} />
+                <LaunchForm onLaunchToken={handleLaunchToken} showToast={showToast} />
                 <Portfolio portfolio={portfolio} tokens={tokenList} />
                 <TokenList 
                     tokenList={tokenList} 
-                    handleBuy={handleBuy} 
-                    handleSell={handleSell} 
+                    onOpenModal={onOpenModal}
                 />
+                <TransactionHistory transactions={transactions} />
             </main>
 
             <footer className="p-4 text-center bg-crapto-brown border-t-4 border-crapto-light-brown shadow-inner">
-                <p className='text-sm sm:text-base'>&copy; 2025 Crapto.fun. Local Session Mode. Click Buy/Sell to see prices and portfolio update.</p>
+                <p className='text-sm sm:text-base'>&copy; 2025 Crapto.fun. Local Session Mode. Connect wallet and click Buy/Sell to open the trading modal.</p>
             </footer>
+
+            {/* Modals and Toasts */}
+            {modalState.isOpen && (
+                <TokenModal 
+                    modalState={modalState} 
+                    onClose={onCloseModal} 
+                    onTrade={handleComplexTrade} 
+                    portfolio={portfolio}
+                />
+            )}
+            <ToastNotification toast={toast} onClose={() => setToast(null)} />
         </div>
     );
 };
@@ -445,7 +721,7 @@ const GlobalStylesAndConfig = () => (
                         },
                         animation: {
                             'bounce': 'bounce 1s infinite',
-                            'spin-slow': 'spin 3s linear infinite', // Add spin-slow
+                            'spin-slow': 'spin 3s linear infinite', 
                         }
                     },
                 },
@@ -454,10 +730,24 @@ const GlobalStylesAndConfig = () => (
         
         {/* Step 3: Set Global Font (Inter) for better styling */}
         <style dangerouslySetInnerHTML={{ __html: `
-            /* Use a darker background color for the body if needed */
             body { 
                 font-family: 'Inter', sans-serif; 
-                background-color: #4F2C0B; /* Ensures background is correct if root element doesn't cover all */
+                background-color: #4F2C0B;
+            }
+            /* Custom scrollbar for transaction history */
+            ::-webkit-scrollbar {
+                width: 8px;
+            }
+            ::-webkit-scrollbar-track {
+                background: #8B4513; 
+                border-radius: 10px;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: #F4D03F; 
+                border-radius: 10px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: #DAA06D; 
             }
         `}} />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
@@ -476,4 +766,3 @@ export default function AppWrapper() {
         </React.Fragment>
     );
 }
-```eof
