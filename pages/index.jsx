@@ -230,7 +230,8 @@ const TokenList = ({ tokenList }) => {
 
 // --- 3. MAIN APP COMPONENT (Manages local state) ---
 
-const CraptoFunApp = () => {
+// We rename the component to 'Home' which is often expected in Next.js's pages/index.jsx
+const Home = () => {
     const [tokenList, setTokenList] = useState(initialMockTokens);
 
     const handleLaunchToken = useCallback((newToken) => {
@@ -276,33 +277,49 @@ const CraptoFunApp = () => {
 
 // --- 4. TOP LEVEL EXPORT & TAILWIND CONFIG ---
 
-const TailwindConfig = () => (
-    <script dangerouslySetInnerHTML={{ __html: `
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'crapto-dark-brown': '#4F2C0B', // Base Background
-                        'crapto-brown': '#8B4513',       // Card/Footer Background
-                        'crapto-light-brown': '#DAA06D', // Secondary Text/Borders
-                        'crapto-poop-yellow': '#F4D03F', // Accent/Primary CTA
+// We need to use <style> tags here because we cannot rely on a global CSS file or build process
+const GlobalStylesAndConfig = () => (
+    <React.Fragment>
+        {/* Step 1: Include Tailwind CSS CDN */}
+        <script src="https://cdn.tailwindcss.com"></script>
+
+        {/* Step 2: Define Custom Tailwind Colors and Configuration */}
+        <script dangerouslySetInnerHTML={{ __html: `
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            'crapto-dark-brown': '#4F2C0B', // Base Background
+                            'crapto-brown': '#8B4513',       // Card/Footer Background
+                            'crapto-light-brown': '#DAA06D', // Secondary Text/Borders
+                            'crapto-poop-yellow': '#F4D03F', // Accent/Primary CTA
+                        },
+                        animation: {
+                            'bounce': 'bounce 1s infinite',
+                        }
                     },
-                    animation: {
-                        'bounce': 'bounce 1s infinite',
-                    }
                 },
-            },
-        }
-    `}} />
+            }
+        `}} />
+        
+        {/* Step 3: Set Global Font (Inter) for better styling */}
+        <style dangerouslySetInnerHTML={{ __html: `
+            body { 
+                font-family: 'Inter', sans-serif; 
+            }
+        `}} />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
+    </React.Fragment>
 );
 
 
-export default function App() {
+// Export a wrapper component that includes the necessary scripts and Context provider
+export default function AppWrapper() {
     return (
         <React.Fragment>
-            <TailwindConfig />
+            <GlobalStylesAndConfig />
             <MockWalletProvider>
-                <CraptoFunApp />
+                <Home />
             </MockWalletProvider>
         </React.Fragment>
     );
