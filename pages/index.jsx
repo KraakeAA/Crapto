@@ -4,27 +4,32 @@ import React, { useState, useContext, useCallback, useMemo } from 'react';
 
 // Mock data to populate the market on initial load
 const initialMockTokens = [
-    { id: '1', name: 'Original Poop', ticker: 'OPOOP', marketCap: 8500, createdAt: Date.now() - 100000, creatorId: 'mock-user-1' },
-    { id: '2', name: 'Damp Dirt', ticker: 'DDIRT', marketCap: 3200, createdAt: Date.now() - 50000, creatorId: 'mock-user-2' },
-    { id: '3', name: 'Slimy Sludge', ticker: 'SLUDG', marketCap: 15000, createdAt: Date.now() - 10000, creatorId: 'mock-user-3' },
+    { id: '1', name: 'Original Poop', ticker: 'OPOOP', marketCap: 15000, price: 0.00000008, change24h: 12.5, createdAt: Date.now() - 100000, creatorId: 'mock-user-1' },
+    { id: '2', name: 'Damp Dirt', ticker: 'DDIRT', marketCap: 8200, price: 0.00000003, change24h: -5.1, createdAt: Date.now() - 50000, creatorId: 'mock-user-2' },
+    { id: '3', name: 'Slimy Sludge', ticker: 'SLUDG', marketCap: 35000, price: 0.00000015, change24h: 22.9, createdAt: Date.now() - 10000, creatorId: 'mock-user-3' },
 ];
 
-// --- 1. MOCK SOLANA WALLET CONTEXT (For UI Functionality) ---
+const initialPortfolio = {
+    solBalance: 5.0, // Mock Solana balance
+    holdings: {},    // { TICKER: { amount: 10000000, cost: 0.5 } }
+};
+
+// --- 1. MOCK SOLANA WALLET CONTEXT ---
 const MockWalletContext = React.createContext(null);
 
 const MockWalletProvider = ({ children }) => {
     const [publicKey, setPublicKey] = useState(null);
-    const [userId] = useState(crypto.randomUUID()); // Simple anonymous ID for the current session
+    const [userId] = useState(crypto.randomUUID());
     const connected = !!publicKey;
 
     const connect = () => {
-        // Simulate a successful wallet connection
         const mockKey = `Crapto${Math.random().toString(36).substring(2, 10)}...`;
         setPublicKey(mockKey);
     };
 
     const disconnect = () => {
         setPublicKey(null);
+        // NOTE: We do not clear the portfolio on disconnect in this simplified mock
     };
 
     const value = { publicKey, connected, connect, disconnect, userId };
@@ -61,11 +66,74 @@ const WalletMultiButton = () => {
     );
 };
 
-// --- 2. CORE APPLICATION COMPONENTS ---
+// --- 2. PORTFOLIO COMPONENT ---
+
+const Portfolio = ({ portfolio, tokens }) => {
+    const { connected } = useMockWallet();
+    const holdings = Object.values(portfolio.holdings);
+
+    if (!connected) return null;
+
+    const totalValue = holdings.reduce((sum, holding) => {
+        const token = tokens.find(t => t.ticker === holding.ticker);
+        if (token) {
+            // Calculate value based on current mock price
+            return sum + (holding.amount * token.price) / 100000000;
+        }
+        return sum;
+    }, 0);
+
+    const formatPrice = (price) => price ? price.toFixed(8) : 'N/A';
+    const formatValue = (value) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+    
+    return (
+        <section className="max-w-4xl mx-auto mt-12 mb-16 p-6 bg-crapto-brown/70 rounded-2xl shadow-xl border-4 border-crapto-light-brown/50">
+            <h2 className="text-3xl font-extrabold mb-4 text-crapto-poop-yellow">Your Crapto Portfolio</h2>
+            
+            <div className="grid grid-cols-2 gap-4 text-center mb-6 border-b border-crapto-light-brown/30 pb-4">
+                <div className="p-3 bg-crapto-dark-brown rounded-lg shadow-inner">
+                    <p className="text-sm text-crapto-light-brown/80">SOL Balance</p>
+                    <p className="text-2xl font-bold text-white">{portfolio.solBalance.toFixed(4)} SOL</p>
+                </div>
+                <div className="p-3 bg-crapto-dark-brown rounded-lg shadow-inner">
+                    <p className="text-sm text-crapto-light-brown/80">Total Token Value</p>
+                    <p className="text-2xl font-bold text-green-400">{formatValue(totalValue)}</p>
+                </div>
+            </div>
+
+            {holdings.length === 0 ? (
+                <p className="text-center text-crapto-light-brown/70">No holdings yet. Buy a coin to start!</p>
+            ) : (
+                <div className="space-y-3">
+                    {holdings.map(h => {
+                        const token = tokens.find(t => t.ticker === h.ticker);
+                        const currentPrice = token?.price || 0;
+                        const usdValue = (h.amount * currentPrice) / 100000000;
+                        
+                        return (
+                            <div key={h.ticker} className="flex justify-between items-center p-3 bg-crapto-dark-brown/50 rounded-lg">
+                                <div>
+                                    <p className="text-xl font-bold text-crapto-poop-yellow">{h.ticker}</p>
+                                    <p className="text-xs text-crapto-light-brown/80">{h.amount.toLocaleString()} Tokens</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-md font-semibold text-white">{formatValue(usdValue)}</p>
+                                    <p className="text-xs text-crapto-light-brown/80">@{formatPrice(currentPrice)} SOL</p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </section>
+    );
+};
+
+
+// --- 3. LAUNCH FORM & TOKEN LIST COMPONENTS ---
 
 const LaunchForm = ({ onLaunchToken }) => {
     const { connected, userId } = useMockWallet();
-
     const [tokenName, setTokenName] = useState('');
     const [ticker, setTicker] = useState('');
     const [message, setMessage] = useState('');
@@ -84,25 +152,27 @@ const LaunchForm = ({ onLaunchToken }) => {
         setIsLaunching(true);
         setMessage('Processing launch... smell the profits!');
 
-        // Simulate network delay
         setTimeout(() => {
+            const initialPrice = 0.00000001; // $1e-8
             const newToken = {
                 id: crypto.randomUUID(),
                 name: tokenName.trim(),
                 ticker: ticker.trim().toUpperCase(),
-                marketCap: Math.floor(Math.random() * 5000) + 1000, // Initial small market cap
-                creatorId: userId,
+                marketCap: 1000, 
+                price: initialPrice,
+                change24h: 0,
                 createdAt: Date.now(),
+                creatorId: userId,
             };
 
-            onLaunchToken(newToken); // Add to parent state
+            onLaunchToken(newToken); 
 
-            setMessage(`✅ ${newToken.ticker} successfully launched!`);
+            setMessage(`✅ ${newToken.ticker} successfully launched at ${initialPrice} SOL!`);
             setTokenName('');
             setTicker('');
             setIsLaunching(false);
-            setTimeout(() => setMessage(''), 5000); // Clear message
-        }, 1500); // 1.5 second launch simulation
+            setTimeout(() => setMessage(''), 5000); 
+        }, 1500); 
     }, [tokenName, ticker, connected, userId, onLaunchToken]);
 
     const isButtonDisabled = !connected || !tokenName || !ticker || isLaunching;
@@ -162,11 +232,10 @@ const LaunchForm = ({ onLaunchToken }) => {
     );
 };
 
-const TokenList = ({ tokenList }) => {
-    const { userId } = useMockWallet();
+const TokenList = ({ tokenList, handleBuy, handleSell }) => {
+    const { userId, connected } = useMockWallet();
 
     const sortedTokenList = useMemo(() => {
-        // Sort by creation time, newest first
         return [...tokenList].sort((a, b) => b.createdAt - a.createdAt);
     }, [tokenList]);
 
@@ -182,62 +251,138 @@ const TokenList = ({ tokenList }) => {
                         No tokens launched yet. Be the first to drop the stinkiest coin!
                     </p>
                 ) : (
-                    sortedTokenList.map((token) => (
-                        <div 
-                            key={token.id} 
-                            className="bg-crapto-brown p-5 rounded-xl shadow-lg flex flex-wrap sm:flex-nowrap items-center justify-between transition duration-300 hover:bg-crapto-brown/80 border-l-8 border-crapto-poop-yellow relative"
-                            // Mock click handler for 'buy/sell'
-                            onClick={() => console.log(`Attempting to buy ${token.ticker}`)}
-                        >
-                            <div className="flex-1 min-w-[150px] mb-3 sm:mb-0">
-                                <p className="text-xs text-crapto-light-brown/80">TOKEN NAME</p>
-                                <h3 className="text-2xl font-extrabold text-white">{token.name}</h3>
-                            </div>
-                            
-                            <div className="flex-1 min-w-[100px] mb-3 sm:mb-0 text-center">
-                                <p className="text-xs text-crapto-light-brown/80">TICKER</p>
-                                <p className="text-3xl font-mono font-black text-crapto-poop-yellow">{token.ticker}</p>
-                            </div>
+                    sortedTokenList.map((token) => {
+                        const isPositive = token.change24h >= 0;
+                        const changeColor = isPositive ? 'text-green-400' : 'text-red-400';
+                        const formatPrice = (price) => price.toFixed(8);
 
-                            <div className="flex-1 min-w-[150px] mb-3 sm:mb-0 text-right">
-                                <p className="text-xs text-crapto-light-brown/80">MARKET CAP</p>
-                                <p className="text-2xl font-bold text-green-400">
-                                    ${token.marketCap.toLocaleString()}
-                                </p>
-                            </div>
-                            
-                            <div className="w-full sm:w-auto sm:ml-6 flex justify-end">
-                                <button
-                                    className="px-4 py-2 bg-crapto-poop-yellow text-crapto-dark-brown font-bold rounded-full hover:bg-white transition duration-200"
-                                >
-                                    Buy Now
-                                </button>
-                            </div>
+                        return (
+                            <div 
+                                key={token.id} 
+                                className="bg-crapto-brown p-5 rounded-xl shadow-lg flex flex-wrap gap-4 items-center justify-between transition duration-300 hover:bg-crapto-brown/80 border-l-8 border-crapto-poop-yellow relative"
+                            >
+                                <div className="w-full sm:w-auto flex-1 min-w-[150px]">
+                                    <p className="text-xs text-crapto-light-brown/80">TICKER / NAME</p>
+                                    <h3 className="text-2xl font-extrabold text-crapto-poop-yellow">
+                                        {token.ticker}
+                                        <span className="text-base text-white/70 ml-2">({token.name})</span>
+                                    </h3>
+                                </div>
+                                
+                                <div className="flex-1 min-w-[100px] text-center">
+                                    <p className="text-xs text-crapto-light-brown/80">PRICE (SOL)</p>
+                                    <p className="text-xl font-mono font-bold text-white">{formatPrice(token.price)}</p>
+                                </div>
 
-                            {/* Creator ID indicator (Only visible if you launched it this session) */}
-                            {token.creatorId === userId && (
-                                <span className="absolute top-1 right-2 text-xs text-crapto-poop-yellow/70">
-                                    (Yours)
-                                </span>
-                            )}
-                        </div>
-                    ))
+                                <div className="flex-1 min-w-[100px] text-center">
+                                    <p className="text-xs text-crapto-light-brown/80">24H CHANGE</p>
+                                    <p className={`text-xl font-mono font-bold ${changeColor}`}>
+                                        {token.change24h.toFixed(1)}%
+                                    </p>
+                                </div>
+
+                                <div className="flex-1 min-w-[100px] text-right">
+                                    <p className="text-xs text-crapto-light-brown/80">MARKET CAP</p>
+                                    <p className="text-xl font-bold text-white">
+                                        ${(token.marketCap).toLocaleString()}
+                                    </p>
+                                </div>
+                                
+                                <div className="w-full sm:w-auto sm:ml-6 flex space-x-2 justify-end">
+                                    <button
+                                        onClick={() => handleBuy(token)}
+                                        disabled={!connected}
+                                        className="px-4 py-2 bg-green-600 text-white font-bold rounded-full hover:bg-green-700 transition duration-200 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                    >
+                                        Buy
+                                    </button>
+                                    <button
+                                        onClick={() => handleSell(token)}
+                                        disabled={!connected}
+                                        className="px-4 py-2 bg-red-600 text-white font-bold rounded-full hover:bg-red-700 transition duration-200 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                    >
+                                        Sell
+                                    </button>
+                                </div>
+
+                                {/* Creator ID indicator */}
+                                {token.creatorId === userId && (
+                                    <span className="absolute top-1 right-2 text-xs text-crapto-poop-yellow/70">
+                                        (Yours)
+                                    </span>
+                                )}
+                            </div>
+                        );
+                    })
                 )}
             </div>
         </section>
     );
 };
 
-// --- 3. MAIN APP COMPONENT (Manages local state) ---
+// --- 4. MAIN APP COMPONENT (Manages local state) ---
 
-// We rename the component to 'Home' which is often expected in Next.js's pages/index.jsx
 const Home = () => {
+    const { connected } = useMockWallet();
     const [tokenList, setTokenList] = useState(initialMockTokens);
+    const [portfolio, setPortfolio] = useState(initialPortfolio);
 
     const handleLaunchToken = useCallback((newToken) => {
-        // Adds the new token to the front of the list
         setTokenList(prevList => [newToken, ...prevList]);
     }, []);
+
+    const handleTrade = useCallback((token, type) => {
+        if (!connected) return;
+
+        const { ticker, price } = token;
+        const tradeAmount = 10000000; // Mock trade amount in tokens
+        const solCost = price * (tradeAmount / 100000000); // Cost/Receive in SOL
+
+        setTokenList(prevList => prevList.map(t => {
+            if (t.id === token.id) {
+                // Simulate price fluctuation and market cap change
+                const factor = type === 'BUY' ? 1.001 : 0.999;
+                return {
+                    ...t,
+                    marketCap: Math.round(t.marketCap + (type === 'BUY' ? 100 : -100)),
+                    price: t.price * factor,
+                    change24h: Math.min(Math.max(t.change24h + (type === 'BUY' ? 0.5 : -0.5), -50), 200) // Keep change bounded
+                };
+            }
+            return t;
+        }));
+
+        setPortfolio(prevPortfolio => {
+            const currentHolding = prevPortfolio.holdings[ticker] || { amount: 0, cost: 0, ticker };
+            const newPortfolio = { ...prevPortfolio };
+
+            if (type === 'BUY' && newPortfolio.solBalance >= solCost) {
+                newPortfolio.solBalance -= solCost;
+                currentHolding.amount += tradeAmount;
+                // Simple average cost calculation
+                currentHolding.cost = (currentHolding.cost * (currentHolding.amount - tradeAmount) + solCost * 1) / currentHolding.amount;
+                
+            } else if (type === 'SELL' && currentHolding.amount >= tradeAmount) {
+                newPortfolio.solBalance += solCost; // Receive SOL
+                currentHolding.amount -= tradeAmount;
+            } else {
+                // Not enough SOL or Tokens
+                return prevPortfolio;
+            }
+            
+            if (currentHolding.amount > 0) {
+                 newPortfolio.holdings[ticker] = currentHolding;
+            } else {
+                delete newPortfolio.holdings[ticker];
+            }
+
+            return newPortfolio;
+        });
+
+    }, [connected]);
+
+    const handleBuy = useCallback((token) => handleTrade(token, 'BUY'), [handleTrade]);
+    const handleSell = useCallback((token) => handleTrade(token, 'SELL'), [handleTrade]);
 
     return (
         <div className="min-h-screen flex flex-col bg-crapto-dark-brown text-white font-sans">
@@ -263,21 +408,25 @@ const Home = () => {
                         Launch your SPL token instantly, get immediate liquidity, and track the stinkiest coins in real-time.
                     </p>
                 </section>
-
+                
                 <LaunchForm onLaunchToken={handleLaunchToken} />
-                <TokenList tokenList={tokenList} />
+                <Portfolio portfolio={portfolio} tokens={tokenList} />
+                <TokenList 
+                    tokenList={tokenList} 
+                    handleBuy={handleBuy} 
+                    handleSell={handleSell} 
+                />
             </main>
 
             <footer className="p-4 text-center bg-crapto-brown border-t-4 border-crapto-light-brown shadow-inner">
-                <p className='text-sm sm:text-base'>&copy; 2025 Crapto.fun. Local Session Mode.</p>
+                <p className='text-sm sm:text-base'>&copy; 2025 Crapto.fun. Local Session Mode. Click Buy/Sell to see prices and portfolio update.</p>
             </footer>
         </div>
     );
 };
 
-// --- 4. TOP LEVEL EXPORT & TAILWIND CONFIG ---
+// --- 5. TOP LEVEL EXPORT & STYLING CONFIG ---
 
-// We need to use <style> tags here because we cannot rely on a global CSS file or build process
 const GlobalStylesAndConfig = () => (
     <React.Fragment>
         {/* Step 1: Include Tailwind CSS CDN */}
@@ -289,13 +438,14 @@ const GlobalStylesAndConfig = () => (
                 theme: {
                     extend: {
                         colors: {
-                            'crapto-dark-brown': '#4F2C0B', // Base Background
-                            'crapto-brown': '#8B4513',       // Card/Footer Background
-                            'crapto-light-brown': '#DAA06D', // Secondary Text/Borders
-                            'crapto-poop-yellow': '#F4D03F', // Accent/Primary CTA
+                            'crapto-dark-brown': '#4F2C0B', 
+                            'crapto-brown': '#8B4513',       
+                            'crapto-light-brown': '#DAA06D', 
+                            'crapto-poop-yellow': '#F4D03F', 
                         },
                         animation: {
                             'bounce': 'bounce 1s infinite',
+                            'spin-slow': 'spin 3s linear infinite', // Add spin-slow
                         }
                     },
                 },
@@ -304,8 +454,10 @@ const GlobalStylesAndConfig = () => (
         
         {/* Step 3: Set Global Font (Inter) for better styling */}
         <style dangerouslySetInnerHTML={{ __html: `
+            /* Use a darker background color for the body if needed */
             body { 
                 font-family: 'Inter', sans-serif; 
+                background-color: #4F2C0B; /* Ensures background is correct if root element doesn't cover all */
             }
         `}} />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
@@ -313,7 +465,7 @@ const GlobalStylesAndConfig = () => (
 );
 
 
-// Export a wrapper component that includes the necessary scripts and Context provider
+// Export the wrapper component
 export default function AppWrapper() {
     return (
         <React.Fragment>
@@ -324,3 +476,4 @@ export default function AppWrapper() {
         </React.Fragment>
     );
 }
+```eof
