@@ -3,9 +3,12 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        'crapto-brown': '#8B4513',
-        'crapto-light-brown': '#D2B48C',
-        'crapto-dark-brown': '#5C4033',
+        'crapto-brown': '#7B3F00',
+        'crapto-light-brown': '#DAA06D',
+        'crapto-dark-brown': '#4A2C0A',
+      },
+      animation: {
+        'spin-slow': 'spin 2s linear infinite',
       },
     },
   },
